@@ -14,7 +14,7 @@ namespace Streaming.Classic46
             // Web API configuration and services
 
             // Web API streaming mode
-            //config.Services.Replace(typeof(IHostBufferPolicySelector), new FileUploadBufferPolicySelector());
+            config.Services.Replace(typeof(IHostBufferPolicySelector), new FileUploadBufferPolicySelector());
 
             // Web API routes
             config.MapHttpAttributeRoutes();

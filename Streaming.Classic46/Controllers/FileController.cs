@@ -11,6 +11,8 @@ using System.Web;
 using System.Web.Hosting;
 using System.Web.Http;
 using System.Web.Http.Results;
+using NLog;
+using NLog.Fluent;
 
 namespace Streaming.Classic46.Controllers
 {
@@ -20,120 +22,112 @@ namespace Streaming.Classic46.Controllers
         private string MapPath(string fileName)
         {
             return HostingEnvironment.MapPath($"/file/{fileName}");
-        } 
+        }
+
+
 
         [HttpPost, Route("upload2")]
         public async Task<IHttpActionResult> UploadFileMemory(string fileId)
         {
-            var logStream = File.OpenWrite(MapPath("log.txt"));
-            logStream.Seek(0, SeekOrigin.End);
+            LogManager.GetCurrentClassLogger().Log(LogLevel.Info, $"received request {fileId}");
 
-            var logWriter = new StreamWriter(logStream);
-            logWriter.WriteLine($"received request {fileId} :  {DateTime.Now.ToLongTimeString()}");
-
-            if (string.IsNullOrEmpty(fileId))
-            {
-                return new BadRequestErrorMessageResult("не указан Id файла", this);
-            }
             if (!Request.Content.IsMimeMultipartContent())
             {
                 return new BadRequestErrorMessageResult("некорректный mime-тип запроса. ожидается Multipart/FormData", this);
             }
 
-
-            MultipartMemoryStreamProvider data = null;
+            MultipartMemoryStreamProvider provider = null;
             try
             {
-                data = await Request.Content.ReadAsMultipartAsync();
+                provider = await Request.Content.ReadAsMultipartAsync();
+                LogManager.GetCurrentClassLogger().Log(LogLevel.Info, $"finish reading parts to file {fileId}");
             }
             catch (Exception ex)
             {
-                throw ex;
+                LogManager.GetCurrentClassLogger().Log(LogLevel.Error, ex);
             }
 
-            foreach (var content in data.Contents)
+            if (provider?.Contents != null)
             {
-                logWriter.WriteLine($"start handle chunk {fileId} :  {DateTime.Now.ToLongTimeString()}");
-               
-                //var name = content.Headers.ContentDisposition.FileName.Replace("\"", ""); 
-                //name = fileId + Path.GetExtension(name);
-
-                using (var fileStream = File.OpenWrite(MapPath(fileId)))
+                foreach (var content in provider.Contents)
                 {
-                    fileStream.Seek(0, SeekOrigin.End);
-                    var contentStream = await content.ReadAsStreamAsync();
-                    await contentStream.CopyToAsync(fileStream);
-                    contentStream.Close();
-                    logWriter.WriteLine($"finish handle chunk {fileId} :  {DateTime.Now.ToLongTimeString()}");
+
+                    //var name = content.Headers.ContentDisposition.FileName.Replace("\"", ""); 
+                    //name = fileId + Path.GetExtension(name);
+
+                    LogManager.GetCurrentClassLogger().Log(LogLevel.Info, $"write to file :  {MapPath(fileId)}");
+                    using (var fileStream = File.OpenWrite(MapPath(fileId)))
+                    using (var contentStream = await content.ReadAsStreamAsync())
+                    {
+                        fileStream.Seek(0, SeekOrigin.End);
+                        await contentStream.CopyToAsync(fileStream);
+                        contentStream.Close();
+                    }
+
+                    var info = new FileInfo(MapPath(fileId));
+                    if (info.Exists)
+                    {
+                        LogManager.GetCurrentClassLogger().Log(LogLevel.Info, $"success . current file size :  {info.Length} bytes");
+                    }
                 }
             }
 
-
-            logWriter.Close();
-            logStream.Close();
-
+            LogManager.GetCurrentClassLogger().Log(LogLevel.Info, $"finish request { fileId}");
             return Ok(fileId);
         }
 
         [HttpPost, Route("upload")]
         public async Task<IHttpActionResult> UploadFileDisk(string fileId)
         {
-            var logStream = File.OpenWrite(MapPath("log.txt"));
-            logStream.Seek(0, SeekOrigin.End);
-
-            var logWriter = new StreamWriter(logStream);
-            logWriter.WriteLine($"received request {fileId} :  {DateTime.Now.ToLongTimeString()}");
+            LogManager.GetCurrentClassLogger().Log(LogLevel.Info, $"received request {fileId}");
 
             if (string.IsNullOrEmpty(fileId))
             {
+                LogManager.GetCurrentClassLogger().Log(LogLevel.Error, $"не указан Id файла");
                 return new BadRequestErrorMessageResult("не указан Id файла", this);
             }
             if (!Request.Content.IsMimeMultipartContent())
             {
+                LogManager.GetCurrentClassLogger().Log(LogLevel.Error, $"некорректный mime-тип запроса. ожидается Multipart/FormData");
                 return new BadRequestErrorMessageResult("некорректный mime-тип запроса. ожидается Multipart/FormData", this);
             }
-
 
             string root = HttpContext.Current.Server.MapPath("~/chunk");
             var provider = new MultipartFormDataStreamProvider(root);
             try
             {
                 await Request.Content.ReadAsMultipartAsync(provider);
-                logWriter.WriteLine($"finish reading parts to file {fileId} :  {DateTime.Now.ToLongTimeString()}");
+                LogManager.GetCurrentClassLogger().Log(LogLevel.Info, $"finish reading parts to file {fileId}");
             }
             catch (Exception ex)
             {
-                throw ex;
+                LogManager.GetCurrentClassLogger().Log(LogLevel.Error, ex);
             }
 
             foreach (MultipartFileData file in provider.FileData)
             {
-                continue;
+                LogManager.GetCurrentClassLogger().Log(LogLevel.Info, $"Save chunk :  {file.LocalFileName}");
+                LogManager.GetCurrentClassLogger().Log(LogLevel.Info, $"write to file :  {MapPath(fileId)}");
+
+                var info = new FileInfo(MapPath(fileId));
+                var size = info.Exists ? info.Length : 0;
+                LogManager.GetCurrentClassLogger().Log(LogLevel.Info, $"current file size : {size} bytes");
+                    
+                using (var chunkStream = File.OpenRead(file.LocalFileName))
+                using (var fileStream = File.OpenWrite(MapPath(fileId)))
+                {
+                    fileStream.Seek(0, SeekOrigin.End);
+                    await chunkStream.CopyToAsync(fileStream);
+                }
+
+                info = new FileInfo(MapPath(fileId));
+                if (info.Exists)
+                {
+                    LogManager.GetCurrentClassLogger().Log(LogLevel.Info, $"success . current file size :  {info.Length} bytes");
+                }
             }
 
-
-            //    foreach (var content in data.Contents)
-            //{
-            //    logWriter.WriteLine($"start handle chunk {fileId} :  {DateTime.Now.ToLongTimeString()}");
-
-            //    //var name = content.Headers.ContentDisposition.FileName.Replace("\"", ""); 
-            //    //name = fileId + Path.GetExtension(name);
-
-            //    using (var fileStream = File.OpenWrite(MapPath(fileId)))
-            //    {
-            //        fileStream.Seek(0, SeekOrigin.End);
-            //        var contentStream = await content.ReadAsStreamAsync();
-            //        await contentStream.CopyToAsync(fileStream);
-            //        contentStream.Close();
-            //        logWriter.WriteLine($"finish handle chunk {fileId} :  {DateTime.Now.ToLongTimeString()}");
-            //    }
-            //}
-
-
-            logWriter.WriteLine($"finish request {fileId} :  {DateTime.Now.ToLongTimeString()}");
-            logWriter.Close();
-            logStream.Close();
-
+            LogManager.GetCurrentClassLogger().Log(LogLevel.Info, $"finish request { fileId}");
             return Ok(fileId);
         }
 

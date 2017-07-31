@@ -30,7 +30,8 @@ namespace Streaming.Classic46.Core
         // of this method.
         public override bool UseBufferedOutputStream(System.Net.Http.HttpResponseMessage response)
         {
-            return base.UseBufferedOutputStream(response);
+            return false;
+            //return base.UseBufferedOutputStream(response);
         }
     }
 }
